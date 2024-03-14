@@ -1,40 +1,65 @@
+// Import necessary libraries
 const { MemoryStorage } = require("botbuilder");
+const axios = require('axios');
+const { Application } = require("@microsoft/teams-ai");
 const config = require("./config");
 
-// See https://aka.ms/teams-ai-library to learn more about the Teams AI library.
-const { Application, AI, preview } = require("@microsoft/teams-ai");
-
-// See README.md to prepare your own OpenAI Assistant
 if (!config.openAIKey || !config.openAIAssistantId) {
-  throw new Error(
-    "Missing OPENAI_API_KEY or OPENAI_ASSISTANT_ID. See README.md to prepare your own OpenAI Assistant."
-  );
+  throw new Error("Missing OPENAI_API_KEY or OPENAI_ASSISTANT_ID in the configuration.");
 }
 
-// Create AI components
-// Use OpenAI
-const planner = new preview.AssistantsPlanner({
-  apiKey: config.openAIKey,
-  assistant_id: config.openAIAssistantId,
-});
+// Validate necessary configurations
+if (!config.backendEndpoint) {
+    throw new Error("Missing backend endpoint in the configuration.");
+}
 
-// Define storage and application
+// Define memory storage for Teams application
 const storage = new MemoryStorage();
 const app = new Application({
-  storage,
-  ai: {
-    planner,
-  },
+    storage
 });
 
-app.message("/reset", async (context, state) => {
-  state.deleteConversationState();
-  await context.sendActivity("Ok lets start this over.");
+// Send message to your Python Quart backend
+async function sendMessageToBackend(context, message) {
+    console.log(`Sending message to backend: ${message}`); // Logging the message being sent
+    try {
+        const response = await axios.post(config.backendEndpoint, {
+            messages: [{ role: 'user', content: message }]
+        });
+        console.log(`Received response from backend: ${JSON.stringify(response.data)}`); // Logging the response
+        const replyText = response.data; // Adjust based on your backend response structure
+        await context.sendActivity(replyText);
+    } catch (error) {
+        console.error('Error sending message to backend:', error);
+        console.log(`Error details: ${error.message}`);
+        if (error.response) {
+            // The request was made and the server responded with a status code
+            // that falls out of the range of 2xx
+            console.log(error.response.data);
+            console.log(error.response.status);
+            console.log(error.response.headers);
+        } else if (error.request) {
+            // The request was made but no response was received
+            console.log(error.request);
+        } else {
+            // Something happened in setting up the request that triggered an Error
+            console.log('Error', error.message);
+        }
+        // Send error message back to user
+        await context.sendActivity("There was an error processing your message. Please try again.");
+    }
+}
+
+// Main message handler
+app.message(async (context) => {
+    const userMessage = context.activity.text;
+    await sendMessageToBackend(context, userMessage);
 });
 
-app.ai.action(AI.HttpErrorActionName, async (context, state, data) => {
-  await context.sendActivity("An AI request failed. Please try again later.");
-  return AI.StopCommandName;
+// Reset conversation state
+app.message("/reset", async (context) => {
+    await context.sendActivity("Okay, let's start over.");
 });
 
 module.exports = app;
+
