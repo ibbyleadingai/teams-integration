@@ -36,51 +36,59 @@ function cleanText(text) {
 
 // Send message to your Python Quart backend
 async function sendMessageToBackend(context, message) {
-    console.log(`Sending message to backend: ${message}`); // Logging the message being sent
+    console.log(`Sending message to backend: ${message}`); // Log the message being sent to the backend for debugging.
     try {
+        // Send the user's message to your backend and set the response type to stream for handling streamed responses.
         const response = await axios.post(config.backendEndpoint, {
             messages: [{ role: 'user', content: message }]
         }, {
-            responseType: 'text'  // Ensures the response data is treated as a plain string
-        });
-        console.log(`Received raw response from backend: ${response.data}`); // Logging the raw response
-
-        // Split the response by newlines and filter out any empty lines
-        const responseParts = response.data.trim().split('\n').filter(part => part);
-        let fullResponse = '';
-
-        // Process each part of the response
-        responseParts.forEach(part => {
-            try {
-                const jsonResponse = JSON.parse(part); // Parse each part as JSON
-                if (jsonResponse.choices) {
-                    jsonResponse.choices.forEach(choice => {
-                        choice.messages.forEach(msg => {
-                            if (msg.role === 'assistant') { // Concatenate messages from 'assistant'
-                                fullResponse += msg.content + ' '; // Add a space for readability between messages
-                            }
-                        });
-                    });
-                }
-            } catch (error) {
-                console.error('Error parsing response part:', error);
-                // Log the part that couldn't be parsed for debugging
-                console.error('Part that caused the error:', part);
-            }
+            responseType: 'stream'  // This tells Axios to handle the response as a stream.
         });
 
-        // Log and send the concatenated message
-        console.log("Full response:", fullResponse.trim());
-        fullResponse = cleanText(fullResponse);
-        await context.sendActivity(fullResponse.trim()); // Send the full, concatenated response to the user
+        let runningText = ''; // This will store text chunks that may not represent complete JSON strings.
+        let fullResponse = ''; // This will accumulate the full response text.
+
+        // Process the response stream.
+        const streamProcessed = new Promise((resolve, reject) => {
+            response.data.on('data', (chunk) => {
+                runningText += chunk.toString(); // Add the new chunk to any previous incomplete text.
+                const parts = runningText.split("\n"); // Assuming the backend sends JSON objects separated by newlines.
+                runningText = parts.pop(); // The last item might be incomplete, so we'll wait for the next chunk to complete it.
+
+                parts.forEach(part => {
+                    if (part) { // Ignore empty parts which can occur with consecutive newlines.
+                        try {
+                            const jsonResponse = JSON.parse(part); // Try parsing each complete part as JSON.
+                            jsonResponse.choices?.forEach(choice => {
+                                choice.messages.forEach(msg => {
+                                    if (msg.role === 'assistant') { // Only concatenate messages from the 'assistant'.
+                                        fullResponse += msg.content + ' '; // Add a space between concatenated messages for readability.
+                                    }
+                                });
+                            });
+                        } catch (error) {
+                            console.error('Error parsing part of the response:', part, error); // Log parsing errors for debugging.
+                        }
+                    }
+                });
+            });
+
+            response.data.on('end', () => {
+                resolve(fullResponse.trim()); // Resolve the promise with the full, concatenated response when the stream ends.
+            });
+
+            response.data.on('error', (error) => {
+                reject(error); // Reject the promise if there's an error processing the stream.
+            });
+        });
+
+        // Wait for the stream to be fully processed.
+        fullResponse = await streamProcessed;
+        console.log("Final full response:", fullResponse); // Log the full response for debugging.
+        await context.sendActivity(fullResponse); // Send the full response back to the user in Teams.
     } catch (error) {
-        console.error('Error sending message to backend:', error);
-        // Log more details if available
-        if (error.response) {
-            console.log('Error response data:', error.response.data);
-            console.log('Error response status:', error.response.status);
-        }
-        // Send a fallback error message to the user
+        console.error('Error sending message to backend:', error); // Log any errors that occur during the process.
+        // Inform the user in Teams that there was an error processing their message.
         await context.sendActivity("There was an error processing your message. Please try again.");
     }
 }
