@@ -1,4 +1,3 @@
-// Import necessary libraries
 const { MemoryStorage } = require("botbuilder");
 const axios = require('axios');
 const { Application } = require("@microsoft/teams-ai");
@@ -15,13 +14,11 @@ async function sendMessageToBackend(context, message) {
             messages: [{ role: 'user', content: message }]
         });
 
-        // Here we assume the entire response from the backend is structured for direct use
+        // Assuming the response from your backend now directly contains an array of messages 
         // Adjust based on your backend response structure
-        const messages = response.data.choices.flatMap(choice => choice.messages);
+        const messages = response.data.messages; // Updated to directly use 'messages' from response
         for (const msg of messages) {
-            if (msg.role === 'assistant') {
-                await context.sendActivity(msg.content); // Sending each message back to the user
-            }
+            await context.sendActivity(msg.text); // Sending each message back to the user
         }
     } catch (error) {
         console.error('Error sending message to backend:', error);
