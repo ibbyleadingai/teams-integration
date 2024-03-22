@@ -97,5 +97,18 @@ app.message("/reset", async (context) => {
     await context.sendActivity("Okay, let's start over.");
 });
 
+app.conversationUpdate(async (context) => {
+    const membersAdded = context.activity.membersAdded;
+    if (membersAdded && membersAdded.length > 0) {
+        for (let cnt = 0; cnt < membersAdded.length; cnt++) {
+            // Check if the added member is not the bot itself
+            if (membersAdded[cnt].id !== context.activity.recipient.id) {
+                // Respond to the added member
+                await context.sendActivity("Hello! How may I assist you today");
+            }
+        }
+    }
+});
+
 module.exports = app;
 
