@@ -1,6 +1,3 @@
-require('dotenv').config({ path: 'env/.env.testtool.user' });
-console.log('Backend Endpoint:', process.env.BACKEND_ENDPOINT);
-
 // Import required packages
 const restify = require("restify");
 
